@@ -1,0 +1,9 @@
+search.db
+search.db-shm
+search.db-wal
+*.pbf
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.log

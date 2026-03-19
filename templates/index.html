@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map Search</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f4f6f9; color: #222; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── Header ── */
+  header { background: #1a1a2e; color: #fff; padding: 12px 20px; display: flex;
+            align-items: center; gap: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.4);
+            position: relative; z-index: 1100; }
+  header h1 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+  #search-box { position: relative; flex: 1; max-width: 600px; }
+  #q { width: 100%; padding: 8px 14px; border-radius: 6px; border: none;
+       font-size: 0.95rem; outline: none; background: #fff; }
+  #autocomplete { position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+                  background: #fff; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+                  z-index: 1000; max-height: 320px; overflow-y: auto; }
+  .ac-item { padding: 8px 14px; cursor: pointer; font-size: 0.88rem; line-height: 1.4; color: #222; }
+  .ac-item:hover, .ac-item.active { background: #e8f0fe; }
+  .ac-type { font-size: 0.75rem; color: #666; float: right; margin-left: 8px; }
+  .ac-sub  { font-size: 0.78rem; color: #888; }
+  #status-badge { font-size: 0.75rem; background: #2a2a4a; padding: 4px 10px;
+                  border-radius: 12px; white-space: nowrap; }
+  #status-badge.ready { color: #7fffd4; }
+  #status-badge.notready { color: #ff8080; }
+
+  /* ── Ranking toggle ── */
+  #ranking-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.78rem;
+                    background: #2a2a4a; border-radius: 20px; padding: 3px; white-space: nowrap; }
+  #ranking-toggle label { cursor: pointer; padding: 3px 10px; border-radius: 14px;
+                           transition: all .15s; color: #aaa; }
+  #ranking-toggle input[type=radio] { display: none; }
+  #ranking-toggle input[type=radio]:checked + label { background: #4a6cf7; color: #fff; }
+
+  /* ── Body ── */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #sidebar { width: 360px; min-width: 280px; background: #fff; overflow-y: auto;
+             border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; }
+  #sidebar-header { padding: 12px 16px; border-bottom: 1px solid #eee; background: #fafafa; }
+  #result-count { font-size: 0.82rem; color: #666; margin-bottom: 8px; }
+  #filters { display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-btn { font-size: 0.75rem; padding: 3px 10px; border-radius: 12px; border: 1px solid #ccc;
+                cursor: pointer; background: #fff; transition: all .15s; }
+  .filter-btn:hover { border-color: #4a6cf7; color: #4a6cf7; }
+  .filter-btn.active { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+  #results-list { flex: 1; }
+  .result-item { padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
+                 cursor: pointer; transition: background .1s; }
+  .result-item:hover { background: #f5f8ff; }
+  .result-item.selected { background: #e8f0fe; border-left: 3px solid #4a6cf7; }
+  .r-name  { font-weight: 600; font-size: 0.9rem; }
+  .r-addr  { font-size: 0.8rem; color: #555; margin-top: 2px; }
+  .r-meta  { font-size: 0.75rem; color: #888; margin-top: 3px; display: flex; gap: 8px; }
+  .r-type  { display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 10px;
+             background: #e8f0fe; color: #3a5bd9; font-weight: 500; }
+  .r-type.poi    { background: #fff3e0; color: #c57b00; }
+  .r-type.place  { background: #e8f5e9; color: #2e7d32; }
+  .r-type.named  { background: #fce4ec; color: #c62828; }
+  .r-dist  { color: #4a6cf7; }
+  .r-score { font-size: 0.7rem; color: #bbb; font-family: monospace; }
+  .r-score-detail { font-size: 0.7rem; color: #999; margin-top: 2px; font-family: monospace; }
+  .empty-state { padding: 40px 20px; text-align: center; color: #aaa; font-size: 0.9rem; }
+
+  /* ── Intent banner ── */
+  #intent-banner { display: none; padding: 10px 16px; background: #eef2ff;
+                   border-bottom: 2px solid #4a6cf7; }
+  .intent-header { display: flex; align-items: center; gap: 8px; }
+  .intent-icon   { font-size: 1.2rem; }
+  .intent-title  { font-weight: 600; font-size: 0.88rem; color: #1a1a2e; flex: 1; }
+  .intent-clear  { font-size: 0.75rem; color: #4a6cf7; cursor: pointer; text-decoration: underline; }
+  .intent-note   { font-size: 0.78rem; color: #444; margin-top: 6px; line-height: 1.5;
+                   background: #fff; border-left: 3px solid #4a6cf7; padding: 6px 10px;
+                   border-radius: 0 4px 4px 0; }
+  .intent-chips  { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .intent-chip   { font-size: 0.75rem; padding: 3px 10px; border-radius: 12px; cursor: pointer;
+                   border: 1px solid #4a6cf7; color: #4a6cf7; background: #fff;
+                   transition: all .15s; }
+  .intent-chip:hover, .intent-chip.active { background: #4a6cf7; color: #fff; }
+  .r-anchor { background: #eef2ff; border-left: 3px solid #4a6cf7 !important; }
+
+  /* ── Reservation badge ── */
+  .r-reservable { display: inline-flex; align-items: center; gap: 3px;
+                  font-size: 0.72rem; padding: 1px 7px; border-radius: 10px;
+                  background: #e8f5e9; color: #2e7d32; font-weight: 500;
+                  text-decoration: none; cursor: pointer; }
+  .r-reservable:hover { background: #c8e6c9; }
+
+  /* ── Map ── */
+  #map { flex: 1; }
+
+  /* ── Popup ── */
+  .popup-content p { margin: 3px 0; font-size: 0.82rem; }
+  .popup-content strong { color: #1a1a2e; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🗺 Map Search</h1>
+  <div id="search-box">
+    <input id="q" type="text" placeholder="Search address, place, or POI…" autocomplete="off"/>
+    <div id="autocomplete" style="display:none"></div>
+  </div>
+  <div id="ranking-toggle">
+    <input type="radio" name="ranking" id="r-v1" value="v1" checked>
+    <label for="r-v1">V1 BM25</label>
+    <input type="radio" name="ranking" id="r-v2" value="v2">
+    <label for="r-v2">V2 Smart</label>
+  </div>
+  <span id="status-badge" class="notready">Loading…</span>
+</header>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="intent-banner">
+      <div class="intent-header">
+        <span class="intent-icon" id="intent-icon"></span>
+        <span class="intent-title" id="intent-title"></span>
+        <span class="intent-clear" onclick="clearIntent()">✕ Clear</span>
+      </div>
+      <div class="intent-note" id="intent-note" style="display:none"></div>
+      <div class="intent-chips" id="intent-chips"></div>
+    </div>
+    <div id="sidebar-header">
+      <div id="result-count">Start typing to search</div>
+      <div id="filters">
+        <button class="filter-btn active" data-type="">All</button>
+        <button class="filter-btn" data-type="address">Addresses</button>
+        <button class="filter-btn" data-type="poi">POIs</button>
+        <button class="filter-btn" data-type="place">Places</button>
+      </div>
+    </div>
+    <div id="results-list">
+      <div class="empty-state">Search for an address, place, or point of interest</div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Map ──────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([50.85, 4.35], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+const markersLayer = L.layerGroup().addTo(map);
+let userMarker = null;
+
+// User location button
+L.control.locate = function(opts) {
+  const btn = L.control(opts);
+  btn.onAdd = function() {
+    const el = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+    el.innerHTML = '<a href="#" style="font-size:1.1rem;line-height:26px;text-align:center;display:block;width:26px" title="My location">⊙</a>';
+    el.onclick = (e) => { e.preventDefault(); locateUser(); };
+    return el;
+  };
+  return btn;
+};
+L.control.locate({ position: 'topleft' }).addTo(map);
+
+function locateUser() {
+  navigator.geolocation.getCurrentPosition(pos => {
+    state.userLat = pos.coords.latitude;
+    state.userLon = pos.coords.longitude;
+    if (userMarker) map.removeLayer(userMarker);
+    userMarker = L.circleMarker([state.userLat, state.userLon],
+      { radius: 8, color: '#4a6cf7', fillColor: '#4a6cf7', fillOpacity: 0.8 })
+      .addTo(map)
+      .bindPopup('You are here').openPopup();
+    map.setView([state.userLat, state.userLon], 14);
+    doSearch();
+  });
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+const state = {
+  results: [],
+  selectedIdx: -1,
+  activeType: '',
+  activeRanking: 'v1',
+  userLat: null,
+  userLon: null,
+  debounce: null,
+  intent: null,
+  anchor: null,
+};
+
+// ── Status ───────────────────────────────────────────────────────────────────
+async function checkStatus() {
+  const badge = document.getElementById('status-badge');
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    if (d.ready) {
+      const total = d.total.toLocaleString();
+      badge.textContent = `${total} features indexed`;
+      badge.className = 'ready';
+    } else {
+      badge.textContent = d.message || 'Index not ready';
+      badge.className = 'notready';
+    }
+  } catch {
+    badge.textContent = 'Server error';
+    badge.className = 'notready';
+  }
+}
+checkStatus();
+
+// ── Search ───────────────────────────────────────────────────────────────────
+const qInput = document.getElementById('q');
+const acBox  = document.getElementById('autocomplete');
+
+qInput.addEventListener('input', () => {
+  clearTimeout(state.debounce);
+  state.debounce = setTimeout(doSearch, 200);
+});
+
+qInput.addEventListener('keydown', e => {
+  const items = acBox.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') {
+    state.selectedIdx = Math.min(state.selectedIdx + 1, items.length - 1);
+    updateACHighlight(items);
+  } else if (e.key === 'ArrowUp') {
+    state.selectedIdx = Math.max(state.selectedIdx - 1, 0);
+    updateACHighlight(items);
+  } else if (e.key === 'Enter') {
+    if (state.selectedIdx >= 0 && items[state.selectedIdx]) {
+      items[state.selectedIdx].click();
+    } else {
+      acBox.style.display = 'none';
+    }
+  } else if (e.key === 'Escape') {
+    acBox.style.display = 'none';
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#search-box')) acBox.style.display = 'none';
+});
+
+function updateACHighlight(items) {
+  items.forEach((el, i) => el.classList.toggle('active', i === state.selectedIdx));
+}
+
+async function doSearch() {
+  const q = qInput.value.trim();
+  if (q.length < 2) {
+    acBox.style.display = 'none';
+    return;
+  }
+
+  const params = new URLSearchParams({ q, limit: 20, ranking: state.activeRanking });
+  if (state.activeType) params.set('type', state.activeType);
+  if (state.userLat !== null) {
+    params.set('lat', state.userLat);
+    params.set('lon', state.userLon);
+  }
+
+  try {
+    const r = await fetch('/api/search?' + params);
+    const d = await r.json();
+    if (d.error) { showError(d.error); return; }
+    state.results  = d.results || [];
+    state.intent   = d.intent  || null;
+    state.anchor   = d.intent?.anchor || null;
+    renderIntent();
+    renderResults();
+    renderAutocomplete();
+  } catch (e) {
+    showError('Search failed: ' + e.message);
+  }
+}
+
+// ── Intent ───────────────────────────────────────────────────────────────────
+function renderIntent() {
+  const banner  = document.getElementById('intent-banner');
+  const iconEl  = document.getElementById('intent-icon');
+  const titleEl = document.getElementById('intent-title');
+  const noteEl  = document.getElementById('intent-note');
+  const chipsEl = document.getElementById('intent-chips');
+
+  if (!state.intent) { banner.style.display = 'none'; return; }
+
+  const { label, icon, anchor, note, suggestions } = state.intent;
+  iconEl.textContent  = icon || '🔍';
+  titleEl.textContent = `${label} ${anchor?.name || ''}`;
+
+  noteEl.textContent    = note || '';
+  noteEl.style.display  = note ? 'block' : 'none';
+
+  // Chips come from server (suggestions array)
+  const chips = suggestions || [];
+  chipsEl.innerHTML = chips.map(s =>
+    `<span class="intent-chip" data-q="${s.q}">${s.label}</span>`
+  ).join('');
+  chipsEl.querySelectorAll('.intent-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      qInput.value = chip.dataset.q;
+      acBox.style.display = 'none';
+      doSearch();
+    });
+  });
+
+  banner.style.display = 'block';
+}
+
+function clearIntent() {
+  state.intent = null;
+  state.anchor = null;
+  document.getElementById('intent-banner').style.display = 'none';
+  doSearch();
+}
+
+// ── Ranking toggle ───────────────────────────────────────────────────────────
+document.querySelectorAll('input[name=ranking]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    state.activeRanking = radio.value;
+    doSearch();
+  });
+});
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeType = btn.dataset.type;
+    doSearch();
+  });
+});
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function formatDist(m) {
+  if (m === null) return '';
+  return m < 1000 ? `${m}m` : `${(m/1000).toFixed(1)}km`;
+}
+
+function typeLabel(r) {
+  if (r.feature_type === 'poi') return r.category || 'poi';
+  if (r.feature_type === 'place') return r.place_type || 'place';
+  return r.feature_type;
+}
+
+function renderResults() {
+  const list = document.getElementById('results-list');
+  const count = document.getElementById('result-count');
+  markersLayer.clearLayers();
+
+  if (!state.results.length) {
+    list.innerHTML = '<div class="empty-state">No results found</div>';
+    count.textContent = 'No results';
+    return;
+  }
+
+  count.textContent = `${state.results.length} result${state.results.length > 1 ? 's' : ''}`;
+
+  const isV2      = state.activeRanking === 'v2';
+  const anchorId  = state.anchor?.id || null;
+  list.innerHTML = state.results.map((r, i) => {
+    const addrParts = [r.housenumber, r.street, r.city, r.postcode].filter(Boolean);
+    const addr = addrParts.join(', ');
+    const dist = formatDist(r.distance_m);
+    const tl   = typeLabel(r);
+    const isAnchor = anchorId && r.id === anchorId;
+    const showResCheck = r.website && isFoodCategory(r.category);
+    let scoreHtml = `<span class="r-score">score ${r.score}</span>`;
+    if (isV2 && r.score_detail) {
+      const sd = r.score_detail;
+      scoreHtml += `<div class="r-score-detail">bm25=${sd.bm25} name=${sd.name_boost} place=${sd.place_boost} cat=${sd.category_boost} conf=${sd.conf_boost} pop=${sd.pop_boost}</div>`;
+    }
+    return `
+      <div class="result-item ${isAnchor ? 'r-anchor' : ''}" data-idx="${i}">
+        <div class="r-name">${isAnchor ? '📍 ' : ''}${r.label || r.name || r.id}</div>
+        ${addr && !isAnchor ? `<div class="r-addr">${addr}</div>` : ''}
+        <div class="r-meta">
+          <span class="r-type ${r.feature_type}">${tl}</span>
+          ${dist ? `<span class="r-dist">${dist}</span>` : ''}
+          ${r.phone ? `<span>📞 ${r.phone}</span>` : ''}
+          ${showResCheck ? `<span id="res-${i}" class="r-res-placeholder"></span>` : ''}
+          ${scoreHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  // Click handler
+  list.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => selectResult(parseInt(el.dataset.idx)));
+  });
+
+  // Add markers
+  const bounds = [];
+  state.results.forEach((r, i) => {
+    if (r.lat == null) return;
+    const marker = L.circleMarker([r.lat, r.lon], {
+      radius: 7,
+      color: '#fff',
+      weight: 2,
+      fillColor: colorForType(r.feature_type),
+      fillOpacity: 0.9
+    }).addTo(markersLayer);
+    marker.bindPopup(buildPopup(r));
+    marker._resultIdx = i;
+    bounds.push([r.lat, r.lon]);
+  });
+
+  if (bounds.length) {
+    try { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 }); } catch(e) {}
+  }
+
+  checkReservations();
+}
+
+const FOOD_CATEGORIES = new Set([
+  'restaurant', 'cafe', 'bar', 'pub', 'fast_food', 'food_court',
+  'biergarten', 'ice_cream', 'bakery', 'confectionery', 'diner',
+  'eating_house', 'pizza', 'sushi', 'brasserie', 'bistro',
+]);
+
+function isFoodCategory(cat) {
+  if (!cat) return false;
+  const c = cat.toLowerCase();
+  for (const f of FOOD_CATEGORIES) if (c.includes(f)) return true;
+  return false;
+}
+
+async function checkReservations() {
+  state.results.forEach(async (r, i) => {
+    if (!r.website || !isFoodCategory(r.category)) return;
+    const slot = document.getElementById(`res-${i}`);
+    if (!slot) return;
+
+    try {
+      const resp = await fetch('/api/check_reservation?' + new URLSearchParams({ url: r.website }));
+      const d = await resp.json();
+      const el = document.getElementById(`res-${i}`);
+      if (!el) return;
+      if (d.reservable) {
+        const tip   = d.platform ? `Reserve via ${d.platform}` : 'Online reservation available';
+        const label = d.platform || 'Book online';
+        const href  = d.reservation_url || r.website;
+        el.outerHTML = `<a class="r-reservable" href="${href}" target="_blank" rel="noopener" title="${tip}">📅 ${label}</a>`;
+      }
+    } catch {}
+  });
+}
+
+function renderAutocomplete() {
+  if (!state.results.length) { acBox.style.display = 'none'; return; }
+  state.selectedIdx = -1;
+  acBox.innerHTML = state.results.slice(0, 8).map((r, i) => {
+    const tl = typeLabel(r);
+    const dist = formatDist(r.distance_m);
+    return `
+      <div class="ac-item" data-idx="${i}">
+        <span class="ac-type">${tl}${dist ? ' · ' + dist : ''}</span>
+        ${r.label || r.name || r.id}
+        ${r.city ? `<br><span class="ac-sub">${r.city}${r.postcode ? ' ' + r.postcode : ''}</span>` : ''}
+      </div>`;
+  }).join('');
+  acBox.style.display = 'block';
+
+  acBox.querySelectorAll('.ac-item').forEach(el => {
+    el.addEventListener('click', () => {
+      selectResult(parseInt(el.dataset.idx));
+      acBox.style.display = 'none';
+    });
+  });
+}
+
+function selectResult(idx) {
+  const r = state.results[idx];
+  if (!r) return;
+
+  document.querySelectorAll('.result-item').forEach((el, i) =>
+    el.classList.toggle('selected', i === idx));
+
+  if (r.lat != null) {
+    map.setView([r.lat, r.lon], 16);
+    // Open popup on the matching marker
+    markersLayer.eachLayer(m => {
+      if (m._resultIdx === idx) m.openPopup();
+    });
+  }
+}
+
+function buildPopup(r) {
+  const lines = [];
+  if (r.name) lines.push(`<strong>${r.name}</strong>`);
+  const addr = [r.housenumber, r.street].filter(Boolean).join(' ');
+  if (addr)       lines.push(`<p>${addr}</p>`);
+  if (r.city)     lines.push(`<p>${r.city}${r.postcode ? ' ' + r.postcode : ''}</p>`);
+  if (r.category) lines.push(`<p>Category: ${r.category}</p>`);
+  if (r.phone)    lines.push(`<p>📞 ${r.phone}</p>`);
+  if (r.website)  lines.push(`<p><a href="${r.website}" target="_blank">🌐 Website</a></p>`);
+  return `<div class="popup-content">${lines.join('')}</div>`;
+}
+
+function colorForType(type) {
+  return { address: '#4a6cf7', poi: '#f7a24a', place: '#4af774', named: '#f74a6c' }[type] || '#888';
+}
+
+function showError(msg) {
+  document.getElementById('results-list').innerHTML =
+    `<div class="empty-state" style="color:#c00">${msg}</div>`;
+}
+</script>
+</body>
+</html>
