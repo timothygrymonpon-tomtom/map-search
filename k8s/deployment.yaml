@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: map-search
+  namespace: default
+  labels:
+    app: map-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: map-search
+  template:
+    metadata:
+      labels:
+        app: map-search
+    spec:
+      initContainers:
+        # Downloads search.db from Azure Blob Storage before the app starts.
+        # Uses HTTPS (port 443) to avoid SMB/CIFS firewall issues.
+        - name: download-db
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Downloading search.db from Azure Blob..."
+              curl -fL -o /data/search.db "$DB_BLOB_URL"
+              echo "Done. Size: $(du -sh /data/search.db | cut -f1)"
+          env:
+            - name: DB_BLOB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: map-search-config
+                  key: DB_BLOB_URL
+          volumeMounts:
+            - name: search-data
+              mountPath: /data
+      containers:
+        - name: map-search
+          image: searchpoi.azurecr.io/map-search:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5017
+          env:
+            - name: DB_FILE
+              value: /data/search.db
+          volumeMounts:
+            - name: search-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          readinessProbe:
+            tcpSocket:
+              port: 5017
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: search-data
+          emptyDir: {}

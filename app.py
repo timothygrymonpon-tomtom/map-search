@@ -51,7 +51,7 @@ from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-DB_FILE = os.path.join(os.path.dirname(__file__), 'search.db')
+DB_FILE = os.environ.get('DB_FILE', os.path.join(os.path.dirname(__file__), 'search.db'))
 
 # ── Place-type ranking weights (v2) ──────────────────────────────────────────
 # Higher = stronger boost toward the top of results.

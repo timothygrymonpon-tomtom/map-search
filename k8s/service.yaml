@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: map-search
+  namespace: default
+  labels:
+    app: map-search
+spec:
+  selector:
+    app: map-search
+  ports:
+    - port: 80
+      targetPort: 5017
+      protocol: TCP
+  type: LoadBalancer

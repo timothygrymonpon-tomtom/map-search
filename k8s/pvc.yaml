@@ -1,0 +1,24 @@
+# NOTE: This file is kept for reference only.
+# The Azure Files / SMB mount approach was abandoned because port 445
+# is blocked outbound from the AKS nodes.
+# The active deployment uses Azure Blob Storage + init container instead
+# (see deployment.yaml).  No resources from this file are applied to the cluster.
+#
+# To recreate the secrets manually (do NOT commit real keys):
+#
+#   STORAGE_KEY=$(az storage account keys list \
+#     --account-name poitfstate \
+#     --subscription orbis-poi-dev-1 \
+#     --query "[0].value" -o tsv)
+#
+#   kubectl create secret generic azure-files-secret \
+#     --from-literal=azurestorageaccountname=poitfstate \
+#     --from-literal=azurestorageaccountkey="$STORAGE_KEY"
+#
+#   SAS=$(az storage blob generate-sas \
+#     --account-name poitfstate --account-key "$STORAGE_KEY" \
+#     --container-name map-search-data --name search.db \
+#     --permissions r --expiry 2027-01-01 --https-only --output tsv)
+#
+#   kubectl create secret generic map-search-config \
+#     --from-literal=DB_BLOB_URL="https://poitfstate.blob.core.windows.net/map-search-data/search.db?${SAS}"
