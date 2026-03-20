@@ -665,7 +665,7 @@ def search():
             'taxi':       [('🚆 Train',        'train near'),     ('🅿️ Parking',     'parking near')],
             'train':      [('🚕 Taxi',         'taxi near'),      ('🅿️ Parking',     'parking near'), ('🏨 Hotels', 'hotel near')],
         }
-        suggestions = [{'label': l, 'q': f'{p}{anchor_q}'} for l, p in related.get(intent, [])]
+        suggestions = [{'label': l, 'q': f'{p} {anchor_q}'} for l, p in related.get(intent, [])]
 
         results, intent_meta = run_intent(
             conn, intent, categories, radius, anchor_q, label, icon, suggestions, limit, note
